@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网络流量监控</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f7;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            padding: 30px;
+        }
+        h1 {
+            text-align: center;
+            color: #1d1d1f;
+            margin-bottom: 30px;
+            font-weight: 600;
+        }
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            align-items: end;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        label {
+            font-size: 14px;
+            font-weight: 500;
+            color: #6e6e73;
+        }
+        input[type="datetime-local"] {
+            padding: 10px 12px;
+            border: 1px solid #d2d2d7;
+            border-radius: 8px;
+            font-size: 14px;
+            width: 200px;
+        }
+        button {
+            background: #0071e3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #0077ed;
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-top: 20px;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 20px;
+            text-align: center;
+        }
+        .stat-item {
+            padding: 15px;
+            background: #f0f0f4;
+            border-radius: 8px;
+            min-width: 150px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: 600;
+            color: #0071e3;
+            margin: 5px 0;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #6e6e73;
+        }
+        @media (max-width: 768px) {
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            input[type="datetime-local"] {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 网络流量监控</h1>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label for="start-time">起始时间:</label>
+                <input type="datetime-local" id="start-time">
+            </div>
+            <div class="control-group">
+                <label for="end-time">结束时间:</label>
+                <input type="datetime-local" id="end-time">
+            </div>
+            <button onclick="updateChart()">更新图表</button>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="trafficChart"></canvas>
+        </div>
+
+        <div class="stats">
+            <div class="stat-item">
+                <div class="stat-label">总接收</div>
+                <div class="stat-value" id="total-received">0 B</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">总发送</div>
+                <div class="stat-value" id="total-sent">0 B</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">数据点数</div>
+                <div class="stat-value" id="data-points">0</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let chart = null;
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function setDefaultTimeRange() {
+            const now = new Date();
+            const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            
+            document.getElementById('start-time').value = twentyFourHoursAgo.toISOString().slice(0, 16);
+            document.getElementById('end-time').value = now.toISOString().slice(0, 16);
+        }
+
+        function updateChart() {
+            const startTime = document.getElementById('start-time').value;
+            const endTime = document.getElementById('end-time').value;
+            
+            // 如果没有选择时间，使用默认值
+            const url = startTime && endTime 
+                ? `/api/traffic_data?start=${startTime}&end=${endTime}`
+                : '/api/traffic_data';
+            
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    
+                    // 更新统计信息
+                    document.getElementById('total-received').textContent = formatBytes(data.total_received || 0);
+                    document.getElementById('total-sent').textContent = formatBytes(data.total_sent || 0);
+                    document.getElementById('data-points').textContent = data.timestamps?.length || 0;
+                    
+                    // 更新图表
+                    if (chart) {
+                        chart.destroy();
+                    }
+                    
+                    const ctx = document.getElementById('trafficChart').getContext('2d');
+                    chart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: data.timestamps || [],
+                            datasets: [
+                                {
+                                    label: '接收 (Download)',
+                                    data: data.received || [],
+                                    borderColor: '#34c759',
+                                    backgroundColor: 'rgba(52, 199, 89, 0.1)',
+                                    borderWidth: 2,
+                                    fill: true,
+                                    tension: 0.4
+                                },
+                                {
+                                    label: '发送 (Upload)',
+                                    data: data.sent || [],
+                                    borderColor: '#ff9500',
+                                    backgroundColor: 'rgba(255, 149, 0, 0.1)',
+                                    borderWidth: 2,
+                                    fill: true,
+                                    tension: 0.4
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    title: {
+                                        display: true,
+                                        text: '流量 (Bytes)'
+                                    },
+                                    ticks: {
+                                        callback: function(value) {
+                                            return formatBytes(value);
+                                        }
+                                    }
+                                },
+                                x: {
+                                    title: {
+                                        display: true,
+                                        text: '时间'
+                                    }
+                                }
+                            },
+                            plugins: {
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            return `${context.dataset.label}: ${formatBytes(context.parsed.y)}`;
+                                        }
+                                    }
+                                },
+                                legend: {
+                                    position: 'top',
+                                }
+                            },
+                            interaction: {
+                                intersect: false,
+                                mode: 'index'
+                            }
+                        }
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching data:', error);
+                    alert('获取数据失败: ' + error.message);
+                });
+        }
+
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            setDefaultTimeRange();
+            updateChart();
+            
+            // 每30秒自动刷新
+            setInterval(updateChart, 30000);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Net Monitor</title>
+    <meta charset="utf-8">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h1>网络流量监控 (简化版)</h1>
+    <div id="stats">加载中...</div>
+    <canvas id="chart" width="800" height="400"></canvas>
+    
+    <script>
+        let chart = null;
+        
+        async function fetchData() {
+            try {
+                const response = await fetch('/api/traffic');
+                const data = await response.json();
+                
+                document.getElementById('stats').innerHTML = 
+                    `总接收: ${data.total_received} bytes<br>
+                     总发送: ${data.total_sent} bytes<br>
+                     数据点: ${data.timestamps.length}`;
+                
+                if (chart) {
+                    chart.data.labels = data.timestamps;
+                    chart.data.datasets[0].data = data.received;
+                    chart.data.datasets[1].data = data.sent;
+                    chart.update();
+                } else {
+                    const ctx = document.getElementById('chart').getContext('2d');
+                    chart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: data.timestamps,
+                            datasets: [
+                                {label: '接收', data: data.received, borderColor: 'green'},
+                                {label: '发送', data: data.sent, borderColor: 'orange'}
+                            ]
+                        },
+                        options: {responsive: false}
+                    });
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('stats').innerHTML = '加载失败: ' + error.message;
+            }
+        }
+        
+        // 立即加载并每10秒刷新
+        fetchData();
+        setInterval(fetchData, 10000);
+    </script>
+</body>
+</html>
