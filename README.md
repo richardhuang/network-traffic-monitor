@@ -220,25 +220,33 @@ ALERT_CONFIG = {
 
 ### 修改 Web 端口
 
-编辑 `web_server.py`，修改最后一行：
+1. 复制配置文件模板：
+```bash
+cp config.example.py config.py
+```
 
+2. 编辑 `config.py`，修改端口：
 ```python
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5003, debug=False)  # 修改 port 参数
+WEB_PORT = 8080  # 改为其他端口
+```
+
+3. 重启服务：
+```bash
+launchctl unload com.user.networkweb.plist
+launchctl load com.user.networkweb.plist
 ```
 
 ### 修改告警阈值
 
-编辑 `web_server.py` 或 `traffic_collector.py` 中的 `ALERT_CONFIG`：
-
+编辑 `config.py`：
 ```python
-ALERT_CONFIG = {
-    'enabled': True,
-    'download_threshold_mb': 200,  # 改为 200 MB
-    'upload_threshold_mb': 100,    # 改为 100 MB
-    'speed_threshold_mbps': 50,    # 改为 50 Mbps
-}
+ALERT_ENABLED = True
+ALERT_DOWNLOAD_THRESHOLD_MB = 200  # 下载流量阈值 (MB)
+ALERT_UPLOAD_THRESHOLD_MB = 100    # 上传流量阈值 (MB)
+ALERT_SPEED_THRESHOLD_MBPS = 50    # 速度阈值 (Mbps)
 ```
+
+然后重启服务。
 
 ### 修改数据保留时间
 
