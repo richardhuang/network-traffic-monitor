@@ -56,32 +56,28 @@ ALERT_CONFIG = {
 }
 
 def get_network_stats():
-    """Get network statistics using nettop on macOS"""
+    """Get network statistics using netstat on macOS (no popup window)"""
     try:
-        result = subprocess.run(['nettop', '-L', '1', '-P'],
-                              capture_output=True, text=True, timeout=10)
+        result = subprocess.run(
+            ['/usr/sbin/netstat', '-ib'],
+            capture_output=True, text=True, timeout=10
+        )
 
         if result.returncode != 0:
-            logger.error(f"Error running nettop: {result.stderr}")
-            return None, None
-
-        lines = result.stdout.strip().split('\n')
-        if len(lines) < 2:
+            logger.error(f"Error running netstat: {result.stderr}")
             return None, None
 
         total_received = 0
         total_sent = 0
 
-        for line in lines[1:]:
-            parts = line.split(',')
-            if len(parts) >= 6:
+        for line in result.stdout.strip().split('\n'):
+            parts = line.split()
+            if len(parts) >= 10 and parts[0].startswith('en'):
+                # Ibytes is column 6, Obytes is column 9
                 try:
-                    bytes_in = int(parts[4]) if parts[4].isdigit() else 0
-                    bytes_out = int(parts[5]) if parts[5].isdigit() else 0
-                    total_received += bytes_in
-                    total_sent += bytes_out
-                except (ValueError, IndexError) as e:
-                    logger.debug(f"Parse error: {e}")
+                    total_received += int(parts[6])
+                    total_sent += int(parts[9])
+                except ValueError:
                     continue
 
         return total_received, total_sent
@@ -125,9 +121,9 @@ def get_previous_data():
         
         if row:
             return {
-                'timestamp': datetime.strptime(row['timestamp'], '%Y-%m-%d %H:%M:%S'),
-                'bytes_received': row['bytes_received'],
-                'bytes_sent': row['bytes_sent']
+                'timestamp': datetime.strptime(row[0], '%Y-%m-%d %H:%M:%S'),
+                'bytes_received': row[1],
+                'bytes_sent': row[2]
             }
         return None
     except Exception as e:
