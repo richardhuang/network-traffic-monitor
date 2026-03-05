@@ -92,32 +92,43 @@ def validate_datetime(dt_string):
             continue
     return None
 
-def check_traffic_alert(received, sent, interval_seconds=300):
-    """检查流量是否触发告警"""
+def check_traffic_alert(received, sent, prev_received=None, prev_sent=None, interval_seconds=300):
+    """检查流量是否触发告警（使用增量值）"""
     if not ALERT_CONFIG['enabled']:
         return None
+
+    # 计算增量流量（当前 - 上次）
+    inc_received = received - prev_received if prev_received is not None else received
+    inc_sent = sent - prev_sent if prev_sent is not None else sent
     
-    received_mb = received / (1024 * 1024)
-    sent_mb = sent / (1024 * 1024)
-    
-    # 计算速度 (Mbps)
-    download_speed_mbps = (received * 8) / (interval_seconds * 1000000)
-    upload_speed_mbps = (sent * 8) / (interval_seconds * 1000000)
-    
+    # 处理计数器重置（差值为负）
+    if inc_received < 0:
+        inc_received = received
+    if inc_sent < 0:
+        inc_sent = sent
+
+    # 增量流量 (MB)
+    received_mb = inc_received / (1024 * 1024)
+    sent_mb = inc_sent / (1024 * 1024)
+
+    # 计算速度 (Mbps) - 使用增量值
+    download_speed_mbps = (inc_received * 8) / (interval_seconds * 1000000)
+    upload_speed_mbps = (inc_sent * 8) / (interval_seconds * 1000000)
+
     alerts = []
-    
+
     if received_mb > ALERT_CONFIG['download_threshold_mb']:
         alerts.append(f"下载流量告警：{received_mb:.2f} MB (阈值：{ALERT_CONFIG['download_threshold_mb']} MB)")
-    
+
     if sent_mb > ALERT_CONFIG['upload_threshold_mb']:
         alerts.append(f"上传流量告警：{sent_mb:.2f} MB (阈值：{ALERT_CONFIG['upload_threshold_mb']} MB)")
-    
+
     if download_speed_mbps > ALERT_CONFIG['speed_threshold_mbps']:
         alerts.append(f"下载速度告警：{download_speed_mbps:.2f} Mbps (阈值：{ALERT_CONFIG['speed_threshold_mbps']} Mbps)")
-    
+
     if upload_speed_mbps > ALERT_CONFIG['speed_threshold_mbps']:
         alerts.append(f"上传速度告警：{upload_speed_mbps:.2f} Mbps (阈值：{ALERT_CONFIG['speed_threshold_mbps']} Mbps)")
-    
+
     if alerts:
         alert_msg = "\n".join(alerts)
         # 检查是否已经发送过相同告警（避免重复）
@@ -125,12 +136,12 @@ def check_traffic_alert(received, sent, interval_seconds=300):
         if os.path.exists(ALERT_CONFIG['last_alert_file']):
             with open(ALERT_CONFIG['last_alert_file'], 'r') as f:
                 last_alert = f.read().strip()
-        
+
         if alert_msg != last_alert:
             with open(ALERT_CONFIG['last_alert_file'], 'w') as f:
                 f.write(alert_msg)
             return alert_msg
-    
+
     return None
 
 @app.route('/')
@@ -280,7 +291,15 @@ def get_traffic_data():
         alerts = None
         if rows:
             latest_row = rows[-1]
-            alert_msg = check_traffic_alert(latest_row['bytes_received'], latest_row['bytes_sent'])
+            # 获取前一条数据用于计算增量
+            prev_received = rows[-2]['bytes_received'] if len(rows) > 1 else None
+            prev_sent = rows[-2]['bytes_sent'] if len(rows) > 1 else None
+            alert_msg = check_traffic_alert(
+                latest_row['bytes_received'],
+                latest_row['bytes_sent'],
+                prev_received,
+                prev_sent
+            )
             if alert_msg:
                 alerts = alert_msg
                 app.logger.warning(f'Traffic alert: {alert_msg}')
